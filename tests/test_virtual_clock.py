@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app_library.loader import launch_app
+from app_library.loader import get_app_entry, launch_app, list_apps
 from apps.virtual_clock.app import VirtualClockApp
 
 
@@ -33,6 +33,17 @@ def test_launch_app_returns_virtual_clock_instance(monkeypatch) -> None:
     app = launch_app("virtual_clock", start=False)
     assert isinstance(app, VirtualClockApp)
     assert "called" not in started
+
+
+def test_list_apps_accepts_manifest_path() -> None:
+    manifest_path = Path("apps/manifest.json")
+    apps = list(list_apps(manifest_path))
+    assert any(app["id"] == "virtual_clock" for app in apps)
+
+
+def test_get_app_entry_accepts_manifest_path_string() -> None:
+    entry = get_app_entry("virtual_clock", "apps/manifest.json")
+    assert entry["entry_point"] == "apps.virtual_clock.app:VirtualClockApp"
 
 
 class _FakeRoot:

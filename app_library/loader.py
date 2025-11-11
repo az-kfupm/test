@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from importlib import import_module
+from os import PathLike
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, Union
 
 from .base import App
 
 _BASE_DIR = Path(__file__).resolve().parent.parent
 _GLOBAL_MANIFEST_PATH = _BASE_DIR / "apps" / "manifest.json"
+
+
+ManifestLike = Union[Mapping[str, Any], str, PathLike[str]]
 
 
 def load_global_manifest(path: Optional[Path] = None) -> Dict[str, Any]:
@@ -20,14 +25,24 @@ def load_global_manifest(path: Optional[Path] = None) -> Dict[str, Any]:
         return json.load(fh)
 
 
-def list_apps(manifest: Optional[Dict[str, Any]] = None) -> Iterable[Dict[str, Any]]:
+def _manifest_data(manifest: Optional[ManifestLike]) -> Mapping[str, Any]:
+    """Return manifest contents as a mapping regardless of input type."""
+
+    if manifest is None:
+        return load_global_manifest()
+    if isinstance(manifest, Mapping):
+        return manifest
+    return load_global_manifest(Path(manifest))
+
+
+def list_apps(manifest: Optional[ManifestLike] = None) -> Iterable[Dict[str, Any]]:
     """Return the list of registered applications."""
 
-    data = manifest or load_global_manifest()
+    data = _manifest_data(manifest)
     return data.get("apps", [])
 
 
-def get_app_entry(app_id: str, manifest: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def get_app_entry(app_id: str, manifest: Optional[ManifestLike] = None) -> Dict[str, Any]:
     """Return the manifest entry for *app_id* or raise :class:`KeyError`."""
 
     for entry in list_apps(manifest):
@@ -44,10 +59,10 @@ def load_app_class(entry_point: str):
     return getattr(module, class_name)
 
 
-def create_app(app_id: str) -> App:
+def create_app(app_id: str, manifest: Optional[ManifestLike] = None) -> App:
     """Instantiate the application registered under *app_id*."""
 
-    entry = get_app_entry(app_id)
+    entry = get_app_entry(app_id, manifest)
     app_cls = load_app_class(entry["entry_point"])
     app = app_cls()
     if not isinstance(app, App):
@@ -57,10 +72,10 @@ def create_app(app_id: str) -> App:
     return app
 
 
-def launch_app(app_id: str, *, start: bool = True) -> App:
+def launch_app(app_id: str, *, start: bool = True, manifest: Optional[ManifestLike] = None) -> App:
     """Instantiate and optionally start the application registered under *app_id*."""
 
-    app = create_app(app_id)
+    app = create_app(app_id, manifest)
     if start:
         app.start()
     return app
