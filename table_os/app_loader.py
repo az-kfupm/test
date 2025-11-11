@@ -66,6 +66,11 @@ class ManifestParser:
         """Parse :class:`AppMetadata` from a manifest file."""
 
         raw = self.load_manifest(manifest_path)
+        return self.parse_metadata_dict(raw)
+
+    def parse_metadata_dict(self, raw: Dict[str, object]) -> AppMetadata:
+        """Parse :class:`AppMetadata` from an already loaded manifest mapping."""
+
         if not isinstance(raw, dict):
             raise ValueError("Manifest must define a mapping at the top level.")
 
@@ -163,7 +168,71 @@ class AppLoader:
                 flattened.extend(list(location))
 
         manifests = list(self.parser.discover(*flattened))
-        return [(self.parser.parse_metadata(manifest), manifest) for manifest in manifests]
+        metadata_items: List[Tuple[AppMetadata, Path]] = []
+
+        for manifest in manifests:
+            raw = self.parser.load_manifest(manifest)
+
+            if isinstance(raw, dict) and "apps" in raw:
+                apps_value = raw["apps"]
+                if not isinstance(apps_value, list):
+                    raise ValueError("Manifest field 'apps' must be a list of mappings.")
+
+                for index, entry in enumerate(apps_value):
+                    if not isinstance(entry, dict):
+                        raise ValueError(
+                            f"Manifest entry at index {index} within 'apps' must be a mapping."
+                        )
+
+                    combined_entry = dict(entry)
+                    manifest_ref = entry.get("manifest")
+                    if manifest_ref is not None:
+                        if not isinstance(manifest_ref, str):
+                            raise ValueError(
+                                "Manifest field 'manifest' must be a string path when provided."
+                            )
+
+                        nested_raw = None
+                        last_error: Exception | None = None
+                        candidate_paths = []
+                        manifest_ref_path = Path(manifest_ref)
+                        if not manifest_ref_path.is_absolute():
+                            candidate_paths.append(
+                                (manifest.parent / manifest_ref_path).resolve(strict=False)
+                            )
+                        candidate_paths.append(
+                            manifest_ref_path.expanduser().resolve(strict=False)
+                        )
+
+                        for candidate in candidate_paths:
+                            try:
+                                nested_raw = self.parser.load_manifest(candidate)
+                                break
+                            except FileNotFoundError as exc:
+                                last_error = exc
+
+                        if nested_raw is None:
+                            if last_error is not None:
+                                raise last_error
+                            raise FileNotFoundError(
+                                f"Unable to resolve nested manifest reference {manifest_ref!r}."
+                            )
+
+                        if not isinstance(nested_raw, dict):
+                            raise ValueError(
+                                "Nested manifest must define a mapping at the top level."
+                            )
+
+                        combined_entry = {**nested_raw, **combined_entry}
+
+                    metadata = self.parser.parse_metadata_dict(combined_entry)
+                    metadata_items.append((metadata, manifest))
+                continue
+
+            metadata = self.parser.parse_metadata_dict(raw)
+            metadata_items.append((metadata, manifest))
+
+        return metadata_items
 
     def instantiate(self, metadata: AppMetadata) -> App:
         """Instantiate the application described by *metadata*."""
