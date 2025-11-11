@@ -55,3 +55,20 @@ def test_parse_metadata_strips_whitespace(tmp_path: Path) -> None:
     assert metadata.name == "Example"
     assert metadata.module == "apps.example"
     assert metadata.class_name == "ExampleApp"
+
+
+def test_parse_metadata_supports_entry_point(tmp_path: Path) -> None:
+    parser = ManifestParser()
+    manifest = write_manifest(
+        tmp_path,
+        {
+            "name": "Virtual Clock",
+            "entry_point": " apps.virtual_clock.app:VirtualClockApp ",
+        },
+    )
+
+    metadata = parser.parse_metadata(manifest)
+
+    assert metadata.name == "Virtual Clock"
+    assert metadata.module == "apps.virtual_clock.app"
+    assert metadata.class_name == "VirtualClockApp"
