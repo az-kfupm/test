@@ -77,15 +77,42 @@ class ManifestParser:
                 raise ValueError(f"Manifest field {field!r} cannot be empty.")
             return trimmed
 
+        module_value = raw.get("module")
+        class_value = raw.get("class", raw.get("class_name"))
+        entry_point_value = raw.get("entry_point")
+
+        if (module_value is None or class_value is None) and entry_point_value is not None:
+            try:
+                entry_point = _require_string(entry_point_value, "entry_point")
+            except ValueError as exc:
+                raise ValueError(
+                    "Manifest requires 'entry_point' to be a non-empty string if provided."
+                ) from exc
+
+            if ":" not in entry_point:
+                raise ValueError(
+                    "Manifest entry_point must be in 'module:Class' format."
+                )
+
+            module_part, class_part = (part.strip() for part in entry_point.split(":", 1))
+            if not module_part or not class_part:
+                raise ValueError(
+                    "Manifest entry_point must be in 'module:Class' format."
+                )
+
+            if module_value is None:
+                module_value = module_part
+            if class_value is None:
+                class_value = class_part
+
         try:
             name = _require_string(raw.get("name"), "name")
-            module = _require_string(raw.get("module"), "module")
+            module = _require_string(module_value, "module")
         except ValueError as exc:
             raise ValueError(
                 "Manifest requires 'name' and 'module' string fields."
             ) from exc
 
-        class_value = raw.get("class", raw.get("class_name"))
         try:
             class_name = _require_string(class_value, "class")
         except ValueError as exc:
@@ -95,7 +122,15 @@ class ManifestParser:
 
         description = raw.get("description")
         icon = raw.get("icon")
-        extra_keys = {"name", "module", "class", "class_name", "description", "icon"}
+        extra_keys = {
+            "name",
+            "module",
+            "class",
+            "class_name",
+            "description",
+            "icon",
+            "entry_point",
+        }
         extra = {key: value for key, value in raw.items() if key not in extra_keys}
 
         metadata = AppMetadata(
