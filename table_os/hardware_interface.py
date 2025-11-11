@@ -1,135 +1,50 @@
-"""Hardware abstractions for Table OS.
-
-This module currently exposes a Bluetooth manager stub that mimics the
-behaviour of a simple BLE stack.  The goal is to provide enough surface area
-for application code to experiment with companion connectivity flows while the
-real hardware layer is still under development.
-"""
+"""Stub hardware interface for mapping button events to navigation actions."""
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
-
-Logger = logging.getLogger(__name__)
+from enum import Enum
+from typing import Callable, Dict, List
 
 
-@dataclass
-class MockConnection:
-    """Representation of a connection to a companion device.
+class NavigationAction(str, Enum):
+    """High-level navigation actions driven by hardware buttons."""
 
-    The class stores a `device_id` alongside optional metadata describing the
-    mock companion.  In the future the structure can be expanded with richer
-    state without affecting the public API.
-    """
-
-    device_id: str
-    metadata: Optional[Dict[str, str]] = None
+    MOVE_UP = "move_up"
+    MOVE_DOWN = "move_down"
+    SELECT = "select"
+    BACK = "back"
 
 
-class BluetoothManager:
-    """Tiny Bluetooth LE façade for development.
-
-    The manager keeps track of advertised services and exposes helper methods
-    to simulate the connection lifecycle.  Applications can register
-    callbacks to react to mock connection and disconnection events, enabling a
-    consistent testing experience without real hardware.
-    """
+class HardwareInterface:
+    """Simplified hardware abstraction for button-driven navigation."""
 
     def __init__(self) -> None:
-        self._advertised_services: Dict[str, Dict[str, str]] = {}
-        self._connection_callbacks: List[Callable[[MockConnection], None]] = []
-        self._disconnection_callbacks: List[Callable[[MockConnection], None]] = []
-        self._active_connection: Optional[MockConnection] = None
+        self._button_bindings: Dict[str, NavigationAction] = {}
+        self._action_listeners: List[Callable[[NavigationAction], None]] = []
 
-    # ------------------------------------------------------------------
-    # Service advertisement helpers
-    # ------------------------------------------------------------------
-    def advertise_service(self, service_name: str, *, metadata: Optional[Dict[str, str]] = None) -> None:
-        """Register a service that should appear in advertisements.
+    def bind_button(self, button_id: str, action: NavigationAction) -> None:
+        """Associate a hardware *button_id* with a navigation *action*."""
 
-        Parameters
-        ----------
-        service_name:
-            Human readable identifier for the advertised service.
-        metadata:
-            Optional dictionary with additional information (such as UUIDs or
-            versioning details) that higher level tests may inspect.
-        """
+        self._button_bindings[button_id] = action
 
-        Logger.debug("Advertising service '%s' with metadata: %s", service_name, metadata)
-        self._advertised_services[service_name] = metadata or {}
+    def register_listener(self, listener: Callable[[NavigationAction], None]) -> None:
+        """Register a callback invoked when a navigation *action* occurs."""
 
-    def stop_advertising(self, service_name: Optional[str] = None) -> None:
-        """Stop advertising either a specific service or all services."""
+        self._action_listeners.append(listener)
 
-        if service_name is None:
-            Logger.debug("Clearing all advertised services")
-            self._advertised_services.clear()
+    def emit_button_event(self, button_id: str) -> None:
+        """Convert a raw button event into a navigation action and dispatch it."""
+
+        action = self._button_bindings.get(button_id)
+        if action is None:
             return
+        for listener in list(self._action_listeners):
+            listener(action)
 
-        Logger.debug("Stopping advertisement for service '%s'", service_name)
-        self._advertised_services.pop(service_name, None)
+    def default_bindings(self) -> None:
+        """Configure default button bindings for a standard controller."""
 
-    # ------------------------------------------------------------------
-    # Listener registration
-    # ------------------------------------------------------------------
-    def on_connect(self, callback: Callable[[MockConnection], None]) -> None:
-        """Register a callback triggered when a companion connects."""
-
-        self._connection_callbacks.append(callback)
-
-    def on_disconnect(self, callback: Callable[[MockConnection], None]) -> None:
-        """Register a callback triggered when a companion disconnects."""
-
-        self._disconnection_callbacks.append(callback)
-
-    # ------------------------------------------------------------------
-    # Mock lifecycle controls
-    # ------------------------------------------------------------------
-    def connect_mock(self, *, device_id: str = "mock-companion", metadata: Optional[Dict[str, str]] = None) -> MockConnection:
-        """Simulate an incoming connection from a companion device.
-
-        The method raises a :class:`RuntimeError` if no service is advertised –
-        mirroring the expectation that a real device would not discover the
-        host.  Successful connections are broadcast to registered listeners.
-        """
-
-        if not self._advertised_services:
-            raise RuntimeError("Cannot connect without advertising at least one service")
-
-        connection = MockConnection(device_id=device_id, metadata=metadata)
-        Logger.info("Mock companion '%s' connected", device_id)
-        self._active_connection = connection
-        for callback in list(self._connection_callbacks):
-            callback(connection)
-        return connection
-
-    def disconnect_mock(self) -> None:
-        """Simulate the active companion disconnecting."""
-
-        if not self._active_connection:
-            Logger.debug("disconnect_mock() called without an active connection")
-            return
-
-        Logger.info("Mock companion '%s' disconnected", self._active_connection.device_id)
-        connection = self._active_connection
-        self._active_connection = None
-        for callback in list(self._disconnection_callbacks):
-            callback(connection)
-
-    # ------------------------------------------------------------------
-    # Introspection helpers
-    # ------------------------------------------------------------------
-    @property
-    def advertised_services(self) -> Dict[str, Dict[str, str]]:
-        """Expose a copy of the advertised services for diagnostics."""
-
-        return dict(self._advertised_services)
-
-    @property
-    def active_connection(self) -> Optional[MockConnection]:
-        """Return the currently active mock connection, if any."""
-
-        return self._active_connection
+        self.bind_button("up", NavigationAction.MOVE_UP)
+        self.bind_button("down", NavigationAction.MOVE_DOWN)
+        self.bind_button("enter", NavigationAction.SELECT)
+        self.bind_button("back", NavigationAction.BACK)
