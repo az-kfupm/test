@@ -69,13 +69,29 @@ class ManifestParser:
         if not isinstance(raw, dict):
             raise ValueError("Manifest must define a mapping at the top level.")
 
-        name = str(raw.get("name"))
-        module = str(raw.get("module"))
-        class_name = str(raw.get("class") or raw.get("class_name"))
-        if not all([name, module, class_name]):
+        def _require_string(value: object, field: str) -> str:
+            if not isinstance(value, str):
+                raise ValueError(f"Manifest field {field!r} must be a string.")
+            trimmed = value.strip()
+            if not trimmed:
+                raise ValueError(f"Manifest field {field!r} cannot be empty.")
+            return trimmed
+
+        try:
+            name = _require_string(raw.get("name"), "name")
+            module = _require_string(raw.get("module"), "module")
+        except ValueError as exc:
             raise ValueError(
-                "Manifest requires 'name', 'module', and 'class'/'class_name' fields."
-            )
+                "Manifest requires 'name' and 'module' string fields."
+            ) from exc
+
+        class_value = raw.get("class", raw.get("class_name"))
+        try:
+            class_name = _require_string(class_value, "class")
+        except ValueError as exc:
+            raise ValueError(
+                "Manifest requires 'class' or 'class_name' string field."
+            ) from exc
 
         description = raw.get("description")
         icon = raw.get("icon")
