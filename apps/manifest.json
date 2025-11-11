@@ -1,0 +1,11 @@
+{
+  "apps": [
+    {
+      "id": "virtual_clock",
+      "name": "Virtual Clock",
+      "description": "Displays the current system time in a simple Tkinter window.",
+      "entry_point": "apps.virtual_clock.app:VirtualClockApp",
+      "manifest": "apps/virtual_clock/manifest.json"
+    }
+  ]
+}

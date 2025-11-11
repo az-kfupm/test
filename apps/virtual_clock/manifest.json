@@ -1,0 +1,6 @@
+{
+  "id": "virtual_clock",
+  "name": "Virtual Clock",
+  "description": "A lightweight clock application that shows the current local time.",
+  "capabilities": ["display", "timekeeping"]
+}
