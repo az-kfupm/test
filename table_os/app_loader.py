@@ -66,6 +66,11 @@ class ManifestParser:
         """Parse :class:`AppMetadata` from a manifest file."""
 
         raw = self.load_manifest(manifest_path)
+        return self.parse_metadata_dict(raw)
+
+    def parse_metadata_dict(self, raw: Dict[str, object]) -> AppMetadata:
+        """Parse :class:`AppMetadata` from an already loaded manifest mapping."""
+
         if not isinstance(raw, dict):
             raise ValueError("Manifest must define a mapping at the top level.")
 
@@ -77,15 +82,42 @@ class ManifestParser:
                 raise ValueError(f"Manifest field {field!r} cannot be empty.")
             return trimmed
 
+        module_value = raw.get("module")
+        class_value = raw.get("class", raw.get("class_name"))
+        entry_point_value = raw.get("entry_point")
+
+        if (module_value is None or class_value is None) and entry_point_value is not None:
+            try:
+                entry_point = _require_string(entry_point_value, "entry_point")
+            except ValueError as exc:
+                raise ValueError(
+                    "Manifest requires 'entry_point' to be a non-empty string if provided."
+                ) from exc
+
+            if ":" not in entry_point:
+                raise ValueError(
+                    "Manifest entry_point must be in 'module:Class' format."
+                )
+
+            module_part, class_part = (part.strip() for part in entry_point.split(":", 1))
+            if not module_part or not class_part:
+                raise ValueError(
+                    "Manifest entry_point must be in 'module:Class' format."
+                )
+
+            if module_value is None:
+                module_value = module_part
+            if class_value is None:
+                class_value = class_part
+
         try:
             name = _require_string(raw.get("name"), "name")
-            module = _require_string(raw.get("module"), "module")
+            module = _require_string(module_value, "module")
         except ValueError as exc:
             raise ValueError(
                 "Manifest requires 'name' and 'module' string fields."
             ) from exc
 
-        class_value = raw.get("class", raw.get("class_name"))
         try:
             class_name = _require_string(class_value, "class")
         except ValueError as exc:
@@ -95,7 +127,15 @@ class ManifestParser:
 
         description = raw.get("description")
         icon = raw.get("icon")
-        extra_keys = {"name", "module", "class", "class_name", "description", "icon"}
+        extra_keys = {
+            "name",
+            "module",
+            "class",
+            "class_name",
+            "description",
+            "icon",
+            "entry_point",
+        }
         extra = {key: value for key, value in raw.items() if key not in extra_keys}
 
         metadata = AppMetadata(
@@ -128,7 +168,71 @@ class AppLoader:
                 flattened.extend(list(location))
 
         manifests = list(self.parser.discover(*flattened))
-        return [(self.parser.parse_metadata(manifest), manifest) for manifest in manifests]
+        metadata_items: List[Tuple[AppMetadata, Path]] = []
+
+        for manifest in manifests:
+            raw = self.parser.load_manifest(manifest)
+
+            if isinstance(raw, dict) and "apps" in raw:
+                apps_value = raw["apps"]
+                if not isinstance(apps_value, list):
+                    raise ValueError("Manifest field 'apps' must be a list of mappings.")
+
+                for index, entry in enumerate(apps_value):
+                    if not isinstance(entry, dict):
+                        raise ValueError(
+                            f"Manifest entry at index {index} within 'apps' must be a mapping."
+                        )
+
+                    combined_entry = dict(entry)
+                    manifest_ref = entry.get("manifest")
+                    if manifest_ref is not None:
+                        if not isinstance(manifest_ref, str):
+                            raise ValueError(
+                                "Manifest field 'manifest' must be a string path when provided."
+                            )
+
+                        nested_raw = None
+                        last_error: Exception | None = None
+                        candidate_paths = []
+                        manifest_ref_path = Path(manifest_ref)
+                        if not manifest_ref_path.is_absolute():
+                            candidate_paths.append(
+                                (manifest.parent / manifest_ref_path).resolve(strict=False)
+                            )
+                        candidate_paths.append(
+                            manifest_ref_path.expanduser().resolve(strict=False)
+                        )
+
+                        for candidate in candidate_paths:
+                            try:
+                                nested_raw = self.parser.load_manifest(candidate)
+                                break
+                            except FileNotFoundError as exc:
+                                last_error = exc
+
+                        if nested_raw is None:
+                            if last_error is not None:
+                                raise last_error
+                            raise FileNotFoundError(
+                                f"Unable to resolve nested manifest reference {manifest_ref!r}."
+                            )
+
+                        if not isinstance(nested_raw, dict):
+                            raise ValueError(
+                                "Nested manifest must define a mapping at the top level."
+                            )
+
+                        combined_entry = {**nested_raw, **combined_entry}
+
+                    metadata = self.parser.parse_metadata_dict(combined_entry)
+                    metadata_items.append((metadata, manifest))
+                continue
+
+            metadata = self.parser.parse_metadata_dict(raw)
+            metadata_items.append((metadata, manifest))
+
+        return metadata_items
 
     def instantiate(self, metadata: AppMetadata) -> App:
         """Instantiate the application described by *metadata*."""
